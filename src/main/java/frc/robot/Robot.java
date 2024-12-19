@@ -15,6 +15,12 @@ import org.littletonrobotics.junction.networktables.NT4Publisher;
 import org.littletonrobotics.junction.wpilog.WPILOGReader;
 import org.littletonrobotics.junction.wpilog.WPILOGWriter;
 
+import com.ctre.phoenix6.hardware.TalonFX;
+
+import edu.wpi.first.math.controller.ProfiledPIDController;
+import edu.wpi.first.math.trajectory.TrapezoidProfile.Constraints;
+import edu.wpi.first.units.Units;
+import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
@@ -23,9 +29,18 @@ import frc.util.loggerUtil.tunables.LoggedTunableNumber;
 
 public class Robot extends LoggedRobot {
     
+    LoggedTunableNumber kV = new LoggedTunableNumber("KV", 2/15);
+    LoggedTunableNumber kP = new LoggedTunableNumber("KP", 1/5);
+    LoggedTunableNumber kI = new LoggedTunableNumber("KI", 0);
+    LoggedTunableNumber kD = new LoggedTunableNumber("KD", 0);
+
+    // private TalonSRX theMotor = new TalonSRX(6);
+    private TalonFX armMotor = new TalonFX(5);
+    private Joystick controller = new Joystick(0);
+    private ProfiledPIDController pid = new ProfiledPIDController(kP.get(), kI.get(), kD.get(), new Constraints(15, 15));
+
     public Robot() {
         aKitSetup();
-        new LoggedTunableNumber("BAHAHAHA", defaultPeriodSecs);
     }
 
     @Override
@@ -52,10 +67,32 @@ public class Robot extends LoggedRobot {
     public void autonomousExit() {}
 
     @Override
-    public void teleopInit() {}
+    public void teleopInit() {
+        pid.reset(armMotor.getPosition().getValue().in(Units.Degrees));
+    }
+
+    LoggedTunableNumber goal = new LoggedTunableNumber("Angle Setpoint", 30);
 
     @Override
-    public void teleopPeriodic() {}
+    public void teleopPeriodic() {
+        // var inputForward = controller.getRawButton(3);
+        // theMotor.set(TalonSRXControlMode.PercentOutput, inputForward ? 0.25 : 0);
+        var currentPos = armMotor.getPosition().getValue().in(Units.Degrees);
+        if (kP.hasChanged(hashCode()) | kI.hasChanged(hashCode()) | kD.hasChanged(hashCode())) {
+            pid.setPID(kP.get(), kI.get(), kD.get());
+        }
+        var PIDOutput = pid.calculate(currentPos, goal.get());
+        var FFOutput = pid.getSetpoint().velocity * kV.get();
+        var output = PIDOutput+FFOutput;
+
+        armMotor.setVoltage(output);
+
+        Logger.recordOutput("Measured Position", currentPos);
+        Logger.recordOutput("Output", output);
+        Logger.recordOutput("Velocity Setpoint", pid.getSetpoint().velocity);
+        Logger.recordOutput("PID Output (Error)", PIDOutput);
+        Logger.recordOutput("Feed-Forward Output", FFOutput);
+    }
 
     @Override
     public void teleopExit() {}
